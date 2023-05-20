@@ -1,0 +1,11 @@
+.env
+dist
+
+# Added by cargo
+
+/target
+
+*.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
