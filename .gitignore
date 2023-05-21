@@ -4,6 +4,7 @@ dist
 # Added by cargo
 
 /target
+/lib
 
 *.db
 *.sqlite

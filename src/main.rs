@@ -1,9 +1,20 @@
 #![feature(decl_macro, proc_macro_hygiene)]
 
+mod hue;
+mod db {
+    pub mod models;
+    pub mod schema;
+    pub mod users;
+    pub mod usersettings;
+    pub mod huebridges;
+    pub mod wleditems;
+}
+
 use std::path::Path;
 
 use okapi::openapi3::OpenApi;
 use rocket::{
+    catch, catchers,
     fs::FileServer,
     get,
     response::Redirect,
@@ -11,7 +22,6 @@ use rocket::{
     serde::{self, json::Json},
     Build, Rocket,
 };
-use rocket_db_pools::{sqlx, Database};
 use rocket_okapi::{
     mount_endpoints_and_merged_docs, openapi,
     settings::{OpenApiSettings, UrlObject},
@@ -21,10 +31,6 @@ use rocket_okapi::{
     openapi_get_routes,
     swagger_ui::{make_swagger_ui, SwaggerUIConfig},
 };
-
-#[derive(Database)]
-#[database("main")]
-struct DbConn(sqlx::SqlitePool);
 
 #[derive(serde::Serialize, JsonSchema)]
 #[serde(crate = "rocket::serde")]
@@ -64,6 +70,21 @@ fn custom_openapi_spec() -> OpenApi {
     }
 }
 
+#[catch(400)]
+fn bad_request() -> Json<&'static str> {
+    Json("Bad Request")
+}
+
+#[catch(404)]
+fn not_found() -> Json<&'static str> {
+    Json("Not Found")
+}
+
+#[catch(500)]
+fn internal_error() -> Json<&'static str> {
+    Json("Internal Server Error")
+}
+
 macro_rules! route_spec {
     ($routes:expr) => {
         ($routes, custom_openapi_spec())
@@ -75,22 +96,28 @@ macro_rules! route_spec {
 
 fn create_server() -> Rocket<Build> {
     let mut api = rocket::build();
-    api = api.attach(DbConn::init());
 
     let dist = Path::new("dist");
     if dist.exists() {
         api = api.mount("/static", FileServer::from(dist));
     }
 
-    api = api.mount("/", routes![redirect]);
+    api = api
+        .mount("/", routes![redirect])
+        .register("/", catchers![bad_request, not_found, internal_error]);
 
     let openapi_settings = OpenApiSettings::default();
-    let api_route_spec = route_spec![openapi_get_routes![status]];
     let docs_route_spec = route_spec![make_swagger_ui(&SwaggerUIConfig {
-        urls: vec![UrlObject {
-            name: "API".to_string(),
-            url: "/api/openapi.json".to_owned(),
-        }],
+        urls: vec![
+            UrlObject {
+                name: "API".to_string(),
+                url: "/api/openapi.json".to_owned(),
+            },
+            UrlObject {
+                name: "Hue".to_string(),
+                url: "/api/hue/openapi.json".to_owned(),
+            }
+        ],
         deep_linking: true,
         ..Default::default()
     })];
@@ -99,7 +126,8 @@ fn create_server() -> Rocket<Build> {
         api,
         "/".to_owned(),
         openapi_settings,
-        "/api" => api_route_spec,
+        "/api" => route_spec![openapi_get_routes![status]],
+        "/api/hue" => route_spec![hue::routes()],
         "/docs" => docs_route_spec,
     };
 
