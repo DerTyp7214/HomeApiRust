@@ -3,41 +3,39 @@
 use diesel::prelude::*;
 use diesel::{Connection, SqliteConnection};
 
-use super::huebridges::get_huebridges_by_user_id;
 use super::models::{HueBridge, WledItem};
-use super::wleditems::get_wleditems_by_user_id;
 use super::{
     models::{UpdateUserSettings, UserSettings},
     schema::usersettings,
 };
 
-pub fn get_usersettings(
-    conn: &mut SqliteConnection,
-) -> Result<Vec<UserSettings>, diesel::result::Error> {
-    conn.transaction(|conn| {
-        let usersettings: Vec<UserSettings> = usersettings::table
-            .load::<UserSettings>(conn)
-            .expect("Error getting user settings");
-
-        Ok(usersettings)
-    })
-}
-
-pub fn get_usersettings_by_user_id(
-    conn: &mut SqliteConnection,
-    user_id: i32,
-) -> Result<UserSettings, diesel::result::Error> {
-    conn.transaction(|conn| {
-        let usersettings: UserSettings = usersettings::table
-            .filter(usersettings::user_id.eq(user_id))
-            .first(conn)
-            .expect("Error getting user settings");
-
-        Ok(usersettings)
-    })
-}
-
 impl UserSettings {
+    pub fn get_usersettings(
+        conn: &mut SqliteConnection,
+    ) -> Result<Vec<UserSettings>, diesel::result::Error> {
+        conn.transaction(|conn| {
+            let usersettings: Vec<UserSettings> = usersettings::table
+                .load::<UserSettings>(conn)
+                .expect("Error getting user settings");
+    
+            Ok(usersettings)
+        })
+    }
+    
+    pub fn get_usersettings_by_user_id(
+        conn: &mut SqliteConnection,
+        user_id: i32,
+    ) -> Result<UserSettings, diesel::result::Error> {
+        conn.transaction(|conn| {
+            let usersettings: UserSettings = usersettings::table
+                .filter(usersettings::user_id.eq(user_id))
+                .first(conn)
+                .expect("Error getting user settings");
+    
+            Ok(usersettings)
+        })
+    }
+
     pub fn update(
         &self,
         conn: &mut SqliteConnection,
@@ -72,13 +70,13 @@ impl UserSettings {
         &self,
         conn: &mut SqliteConnection,
     ) -> Result<Vec<HueBridge>, diesel::result::Error> {
-        get_huebridges_by_user_id(conn, self.user_id)
+        HueBridge::get_huebridges_by_user_id(conn, self.user_id)
     }
 
     pub fn get_wleditems(
         &self,
         conn: &mut SqliteConnection,
     ) -> Result<Vec<WledItem>, diesel::result::Error> {
-        get_wleditems_by_user_id(conn, self.user_id)
+        WledItem::get_wleditems_by_user_id(conn, self.user_id)
     }
 }

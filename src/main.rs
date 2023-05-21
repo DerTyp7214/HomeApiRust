@@ -2,12 +2,17 @@
 
 mod hue;
 mod db {
+    pub mod connection;
+    pub mod huebridges;
     pub mod models;
     pub mod schema;
     pub mod users;
     pub mod usersettings;
-    pub mod huebridges;
     pub mod wleditems;
+}
+
+mod jwt {
+    pub mod auth;
 }
 
 use std::path::Path;
@@ -32,8 +37,9 @@ use rocket_okapi::{
     swagger_ui::{make_swagger_ui, SwaggerUIConfig},
 };
 
+use crate::db::connection;
+
 #[derive(serde::Serialize, JsonSchema)]
-#[serde(crate = "rocket::serde")]
 struct Status {
     status: String,
     version: String,
@@ -80,6 +86,11 @@ fn not_found() -> Json<&'static str> {
     Json("Not Found")
 }
 
+#[catch(409)]
+fn conflict() -> Json<&'static str> {
+    Json("Conflict")
+}
+
 #[catch(500)]
 fn internal_error() -> Json<&'static str> {
     Json("Internal Server Error")
@@ -103,8 +114,12 @@ fn create_server() -> Rocket<Build> {
     }
 
     api = api
+        .manage(connection::establish_connection())
         .mount("/", routes![redirect])
-        .register("/", catchers![bad_request, not_found, internal_error]);
+        .register(
+            "/",
+            catchers![bad_request, not_found, conflict, internal_error],
+        );
 
     let openapi_settings = OpenApiSettings::default();
     let docs_route_spec = route_spec![make_swagger_ui(&SwaggerUIConfig {

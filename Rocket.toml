@@ -1,0 +1,3 @@
+[default.databases.sqlite_database]
+url = "D:\\DevStuff\\HomeApi\\HomeApiRust\\db.sqlite"
+

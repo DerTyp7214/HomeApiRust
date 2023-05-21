@@ -6,7 +6,18 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+dotenv = "0.15.0"
+r2d2 = "0.8.10"
+rocket-jwt = "0.5.0"
 schemars = "0.8.10"
+
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+
+[dependencies.libsqlite3-sys]
+version = "0.26.0"
+features = ["bundled"]
 
 [dependencies.reqwest]
 version = "0.11.18"
@@ -24,5 +35,5 @@ version = "0.5.0-rc.2"
 features = ["json", "secrets", "tls"]
 
 [dependencies.diesel]
-version = "2.0.4"
-features = ["postgres", "sqlite"]
+version = "2.0.0"
+features = ["sqlite", "r2d2"]

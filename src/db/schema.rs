@@ -3,7 +3,7 @@
 diesel::table! {
     huebridges (_id) {
         _id -> Integer,
-        id -> Integer,
+        id -> Text,
         ip -> Text,
         user -> Text,
         user_settings_id -> Integer,

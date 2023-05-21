@@ -7,7 +7,7 @@
  );*/
 CREATE TABLE "huebridges" (
     "_id" INTEGER NOT NULL,
-    "id" INTEGER NOT NULL,
+    "id" TEXT NOT NULL,
     "ip" TEXT NOT NULL,
     "user" TEXT NOT NULL,
     "user_settings_id" INTEGER NOT NULL,
