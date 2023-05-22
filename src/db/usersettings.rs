@@ -13,26 +13,17 @@ impl UserSettings {
     pub fn get_usersettings(
         conn: &mut SqliteConnection,
     ) -> Result<Vec<UserSettings>, diesel::result::Error> {
-        conn.transaction(|conn| {
-            let usersettings: Vec<UserSettings> = usersettings::table
-                .load::<UserSettings>(conn)
-                .expect("Error getting user settings");
-    
-            Ok(usersettings)
-        })
+        conn.transaction(|conn| usersettings::table.load::<UserSettings>(conn))
     }
-    
+
     pub fn get_usersettings_by_user_id(
         conn: &mut SqliteConnection,
         user_id: i32,
     ) -> Result<UserSettings, diesel::result::Error> {
         conn.transaction(|conn| {
-            let usersettings: UserSettings = usersettings::table
+            usersettings::table
                 .filter(usersettings::user_id.eq(user_id))
                 .first(conn)
-                .expect("Error getting user settings");
-    
-            Ok(usersettings)
         })
     }
 
@@ -42,28 +33,24 @@ impl UserSettings {
         update_usersettings: &UpdateUserSettings,
     ) -> Result<UserSettings, diesel::result::Error> {
         conn.transaction(|conn| {
-            diesel::update(self)
-                .set(update_usersettings)
-                .execute(conn)
-                .expect("Error updating user settings");
+            let result = diesel::update(self).set(update_usersettings).execute(conn);
 
-            let updated_usersettings: UserSettings = usersettings::table
-                .find(self.id)
-                .first(conn)
-                .expect("Error updating user settings");
+            if result.is_err() {
+                return Err(result.unwrap_err());
+            }
 
-            Ok(updated_usersettings)
+            let updated_usersettings = usersettings::table.find(self.id).first(conn);
+
+            if updated_usersettings.is_err() {
+                return updated_usersettings;
+            }
+
+            Ok(updated_usersettings.unwrap())
         })
     }
 
-    pub fn delete(&self, conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
-        conn.transaction(|conn| {
-            diesel::delete(self)
-                .execute(conn)
-                .expect("Error deleting user settings");
-
-            Ok(())
-        })
+    pub fn delete(&self, conn: &mut SqliteConnection) -> Result<usize, diesel::result::Error> {
+        conn.transaction(|conn| diesel::delete(self).execute(conn))
     }
 
     pub fn get_huebridges(

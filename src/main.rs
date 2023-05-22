@@ -1,6 +1,7 @@
 #![feature(decl_macro, proc_macro_hygiene)]
 
 mod hue;
+mod repsonses;
 mod db {
     pub mod connection;
     pub mod huebridges;
@@ -11,8 +12,9 @@ mod db {
     pub mod wleditems;
 }
 
-mod jwt {
+mod auth {
     pub mod auth;
+    pub mod routes;
 }
 
 use std::path::Path;
@@ -36,6 +38,7 @@ use rocket_okapi::{
     openapi_get_routes,
     swagger_ui::{make_swagger_ui, SwaggerUIConfig},
 };
+use schemars::gen::SchemaSettings;
 
 use crate::db::connection;
 
@@ -81,6 +84,11 @@ fn bad_request() -> Json<&'static str> {
     Json("Bad Request")
 }
 
+#[catch(401)]
+fn unauthorized() -> Json<&'static str> {
+    Json("Unauthorized")
+}
+
 #[catch(404)]
 fn not_found() -> Json<&'static str> {
     Json("Not Found")
@@ -118,15 +126,28 @@ fn create_server() -> Rocket<Build> {
         .mount("/", routes![redirect])
         .register(
             "/",
-            catchers![bad_request, not_found, conflict, internal_error],
+            catchers![
+                bad_request,
+                unauthorized,
+                not_found,
+                conflict,
+                internal_error
+            ],
         );
 
-    let openapi_settings = OpenApiSettings::default();
+    let openapi_settings = &mut OpenApiSettings {
+        schema_settings: SchemaSettings::openapi3(),
+        ..Default::default()
+    };
     let docs_route_spec = route_spec![make_swagger_ui(&SwaggerUIConfig {
         urls: vec![
             UrlObject {
                 name: "API".to_string(),
                 url: "/api/openapi.json".to_owned(),
+            },
+            UrlObject {
+                name: "Auth".to_string(),
+                url: "/api/auth/openapi.json".to_owned(),
             },
             UrlObject {
                 name: "Hue".to_string(),
@@ -141,8 +162,9 @@ fn create_server() -> Rocket<Build> {
         api,
         "/".to_owned(),
         openapi_settings,
-        "/api" => route_spec![openapi_get_routes![status]],
-        "/api/hue" => route_spec![hue::routes()],
+        "/api" => route_spec![openapi_get_routes![openapi_settings: status]],
+        "/api/hue" => route_spec![hue::routes(openapi_settings)],
+        "/api/auth" => route_spec![auth::routes::routes(openapi_settings)],
         "/docs" => docs_route_spec,
     };
 
@@ -151,6 +173,7 @@ fn create_server() -> Rocket<Build> {
 
 #[rocket::main]
 async fn main() {
+    dotenv::dotenv().ok();
     let launch_result = create_server().launch().await;
 
     match launch_result {

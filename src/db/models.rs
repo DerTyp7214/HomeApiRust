@@ -29,7 +29,9 @@ pub struct UpdateUser<'a> {
     pub hashed_password: Option<&'a str>,
 }
 
-#[derive(Queryable, PartialEq, Identifiable, Selectable, Associations, Serialize, JsonSchema)]
+#[derive(
+    Queryable, PartialEq, Identifiable, Selectable, Associations, Serialize, JsonSchema, Debug,
+)]
 #[diesel(table_name = usersettings)]
 #[diesel(belongs_to(User))]
 pub struct UserSettings {
@@ -54,7 +56,9 @@ pub struct UpdateUserSettings<'a> {
     pub user_id: Option<&'a i32>,
 }
 
-#[derive(Queryable, PartialEq, Identifiable, Selectable, Associations, Serialize, JsonSchema)]
+#[derive(
+    Queryable, PartialEq, Identifiable, Selectable, Associations, Serialize, JsonSchema, Debug,
+)]
 #[diesel(table_name = huebridges)]
 #[diesel(belongs_to(UserSettings))]
 #[diesel(primary_key(_id))]
@@ -86,7 +90,9 @@ pub struct UpdateHueBridge<'a> {
     pub user_settings_id: Option<&'a i32>,
 }
 
-#[derive(Queryable, PartialEq, Identifiable, Selectable, Associations, Serialize, JsonSchema)]
+#[derive(
+    Queryable, PartialEq, Identifiable, Selectable, Associations, Serialize, JsonSchema, Debug,
+)]
 #[diesel(table_name = wleditems)]
 #[diesel(belongs_to(UserSettings))]
 #[diesel(primary_key(_id))]

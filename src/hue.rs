@@ -5,15 +5,19 @@ use rocket::{
     serde::{self, json::Json},
     State,
 };
-use rocket_okapi::{openapi, openapi_get_routes};
+use rocket_okapi::{openapi, openapi_get_routes, settings::OpenApiSettings};
 use schemars::{
     JsonSchema,
     _serde_json::{self, Value},
 };
 
-use crate::db::{
-    connection::{self, SqlitePool, SqlitePooledConnection},
-    models::{HueBridge, NewHueBridge, UpdateHueBridge, UpdateUserSettings, User},
+use crate::{
+    auth::auth::JWTToken,
+    db::{
+        connection::{self, SqlitePool, SqlitePooledConnection},
+        models::{HueBridge, NewHueBridge, UpdateHueBridge, UpdateUserSettings, User},
+    },
+    repsonses::CustomResponse,
 };
 
 static mut STATIC_CLIENT: Option<reqwest::Client> = None;
@@ -81,13 +85,14 @@ struct ConfigRequest {
     host: Option<String>,
     user: Option<String>,
 }
-// BIG TODO: implement jwt auth
+
 #[openapi]
 #[put("/config/add", format = "json", data = "<config_json>")]
 async fn add_config(
+    jtw: JWTToken,
     _dbpool: &State<SqlitePool>,
     config_json: Json<ConfigRequest>,
-) -> Result<Json<ConfigResponse>, Status> {
+) -> Result<Json<ConfigResponse>, CustomResponse> {
     let connection = &mut connection::get_connection(_dbpool).unwrap();
 
     let config = config_json.into_inner();
@@ -104,27 +109,64 @@ async fn add_config(
         ""
     };
 
-    let user = User::get_user(connection, 2).unwrap();
+    let user = User::get_user(connection, jtw.user_id);
 
-    let mut usersettings = user.get_usersettings(connection).unwrap();
+    if user.is_err() {
+        return Err(CustomResponse {
+            status: Status::Unauthorized,
+            message: "Unauthorized".to_string(),
+        });
+    }
 
-    let hue_bridges = usersettings.get_huebridges(connection).unwrap();
+    let user = user.unwrap();
+
+    let usersettings = user.get_usersettings(connection);
+
+    if usersettings.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not get usersettings".to_string(),
+        });
+    }
+
+    let usersettings = usersettings.unwrap();
+
+    let hue_bridges = usersettings.get_huebridges(connection);
+
+    if hue_bridges.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not get hue bridges".to_string(),
+        });
+    }
+
+    let hue_bridges = hue_bridges.unwrap();
 
     for hue_bridge in hue_bridges {
         if hue_bridge.ip == config_ip {
-            return Err(Status::Conflict);
+            return Err(CustomResponse {
+                status: Status::Conflict,
+                message: "Bridge already exists".to_string(),
+            });
         }
     }
 
-    usersettings = usersettings
-        .update(
-            connection,
-            &UpdateUserSettings {
-                hue_index: Some(&(usersettings.hue_index + 1)),
-                user_id: None,
-            },
-        )
-        .unwrap();
+    let usersettings = usersettings.update(
+        connection,
+        &UpdateUserSettings {
+            hue_index: Some(&(usersettings.hue_index + 1)),
+            user_id: None,
+        },
+    );
+
+    if usersettings.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not update usersettings".to_string(),
+        });
+    }
+
+    let usersettings = usersettings.unwrap();
 
     let hue_bridge = HueBridge::create_huebridge(
         connection,
@@ -134,8 +176,16 @@ async fn add_config(
             user: config_user,
             user_settings_id: &usersettings.id,
         },
-    )
-    .unwrap();
+    );
+
+    if hue_bridge.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not create hue bridge".to_string(),
+        });
+    }
+
+    let hue_bridge = hue_bridge.unwrap();
 
     Ok(Json(ConfigResponse {
         id: hue_bridge.id.to_owned(),
@@ -150,12 +200,22 @@ struct InitResponse {
 #[openapi]
 #[get("/init/<bridge_id>")]
 async fn init(
+    jtw: JWTToken,
     _dbpool: &State<SqlitePool>,
     bridge_id: String,
-) -> Result<Json<InitResponse>, Status> {
+) -> Result<Json<InitResponse>, CustomResponse> {
     let connection = &mut connection_from_pool(_dbpool);
 
-    let hue_bridge = &mut HueBridge::get_huebridge_by_bridge_id(connection, &bridge_id).unwrap();
+    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jtw.user_id, &bridge_id);
+
+    if hue_bridge.is_err() {
+        return Err(CustomResponse {
+            status: Status::NotFound,
+            message: "Bridge not found".to_string(),
+        });
+    }
+
+    let hue_bridge = &mut hue_bridge.unwrap();
 
     let user_request = post_hue_json(
         hue_bridge,
@@ -170,29 +230,37 @@ async fn init(
     let error = json["error"].clone();
     if !error.is_null() {
         if error["type"] == 101 {
-            return Err(Status::BadRequest);
+            return Err(CustomResponse {
+                status: Status::Unauthorized,
+                message: "Link button not pressed".to_string(),
+            });
         }
     }
 
     let username = json["success"]["username"].as_str().unwrap();
 
-    hue_bridge
-        .update(
-            connection,
-            &UpdateHueBridge {
-                id: None,
-                ip: None,
-                user: Some(username),
-                user_settings_id: None,
-            },
-        )
-        .unwrap();
+    let hue_bridge = hue_bridge.update(
+        connection,
+        &UpdateHueBridge {
+            id: None,
+            ip: None,
+            user: Some(username),
+            user_settings_id: None,
+        },
+    );
+
+    if hue_bridge.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not update hue bridge".to_string(),
+        });
+    }
 
     Ok(Json(InitResponse {
         username: username.to_owned(),
     }))
 }
 
-pub fn routes() -> Vec<rocket::Route> {
-    openapi_get_routes![init, add_config]
+pub fn routes(settings: &mut OpenApiSettings) -> Vec<rocket::Route> {
+    openapi_get_routes![settings: init, add_config]
 }
