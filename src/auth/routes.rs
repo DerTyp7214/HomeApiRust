@@ -206,6 +206,7 @@ fn login(
 
 #[derive(serde::Serialize, JsonSchema)]
 struct MeResponse {
+    username: String,
     email: String,
 }
 
@@ -251,6 +252,7 @@ fn me(jwt: JWTToken, db_pool: &State<SqlitePool>) -> Result<Json<MeResponse>, Cu
     let user = user.unwrap();
 
     Ok(Json(MeResponse {
+        username: user.username.to_string(),
         email: user.email.to_string(),
     }))
 }

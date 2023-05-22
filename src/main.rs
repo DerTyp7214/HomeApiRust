@@ -17,6 +17,8 @@ mod auth {
     pub mod routes;
 }
 
+mod cors;
+
 use std::path::Path;
 
 use rocket::{
@@ -94,8 +96,9 @@ fn create_server() -> Rocket<Build> {
     }
 
     api = api
+        .attach(cors::CORS)
         .manage(connection::establish_connection())
-        .mount("/", routes![redirect])
+        .mount("/", routes![redirect, cors::all_options])
         .mount(
             "/docs",
             make_swagger_ui(&SwaggerUIConfig {
