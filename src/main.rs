@@ -1,6 +1,5 @@
 #![feature(decl_macro, proc_macro_hygiene)]
 
-mod hue;
 mod repsonses;
 mod db {
     pub mod connection;
@@ -15,6 +14,18 @@ mod db {
 mod auth {
     pub mod auth;
     pub mod routes;
+}
+
+mod plugins {
+    pub mod assets;
+    pub mod hue;
+    pub mod main;
+    pub mod user;
+}
+
+mod utils {
+    pub mod color;
+    pub mod extensions;
 }
 
 mod cors;
@@ -130,8 +141,9 @@ fn create_server() -> Rocket<Build> {
         api,
         "/".to_owned(),
         openapi_settings,
-        "/api" => openapi_get_routes_spec![openapi_settings: status],
-        "/api/hue" => hue::routes(&openapi_settings),
+        "/api" => openapi_get_routes_spec![openapi_settings: status, plugins::main::lights, plugins::main::plugs],
+        "/api/user" => plugins::user::routes(&openapi_settings),
+        "/api/hue" => plugins::hue::routes(&openapi_settings),
         "/api/auth" => auth::routes::routes(&openapi_settings),
     };
 

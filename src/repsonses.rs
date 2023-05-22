@@ -4,6 +4,7 @@ use rocket_okapi::okapi::openapi3::{RefOr, Response as OpenApiReponse};
 use rocket_okapi::{gen::OpenApiGenerator, response::OpenApiResponderInner};
 use schemars::{JsonSchema, Map, _serde_json::json};
 
+#[derive(Debug)]
 pub struct CustomResponse {
     pub status: Status,
     pub message: String,

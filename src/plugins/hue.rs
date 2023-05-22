@@ -19,7 +19,11 @@ use crate::{
         models::{HueBridge, NewHueBridge, UpdateHueBridge, UpdateUserSettings, User},
     },
     repsonses::CustomResponse,
+    utils::color::{hsb_to_hsv, hsv_to_rgb},
 };
+
+use super::main::{NormalizedColor, NormalizedLight, NormalizedPlug};
+use crate::utils::extensions::ValueExt;
 
 static mut STATIC_CLIENT: Option<reqwest::Client> = None;
 
@@ -74,6 +78,91 @@ async fn put_hue_json(hue_bridge: &HueBridge, path: String, body: String) -> Str
         .await;
 
     res.unwrap()
+}
+
+pub async fn get_lights(hue_bridge: &HueBridge) -> Vec<NormalizedLight> {
+    if hue_bridge.user.is_empty() {
+        return Vec::new();
+    }
+    let response = get_hue_json(hue_bridge, format!("{}/lights", hue_bridge.user)).await;
+    let json: Value = _serde_json::de::from_str(&response).unwrap();
+
+    let json = json.as_object().unwrap();
+
+    let mut lights = Vec::new();
+
+    for (id, light_json) in json.iter() {
+        let light = light_json.as_object().unwrap();
+        let state = light.get("state").unwrap().as_object().unwrap();
+
+        if state.contains_key("colormode") {
+            let hsv = hsb_to_hsv(
+                state.get("hue").to_f64() as f32,
+                state.get("sat").to_f64() as f32,
+                state.get("bri").to_f64() as f32,
+            );
+            let rgb = hsv_to_rgb(hsv.0, hsv.1, hsv.2);
+
+            lights.push(NormalizedLight {
+                id: format!("hue-{}-{}", hue_bridge.id, id),
+                name: light.get("name").to_string(),
+                on: state.get("on").to_bool(),
+                brightness: (state.get("bri").to_f64() / 255.0) as f32,
+                color: vec![NormalizedColor(rgb.0, rgb.1, rgb.2)],
+                reachable: state.get("reachable").to_bool(),
+                type_: light.get("type").to_string(),
+                model: light.get("modelid").to_string(),
+                manufacturer: light.get("manufacturername").to_string(),
+                uniqueid: light.get("uniqueid").to_string(),
+                swversion: light.get("swversion").to_string(),
+                productid: Some(light.get("productid").to_string()),
+            });
+        }
+    }
+
+    lights
+}
+
+pub async fn get_plugs(hue_bridge: &HueBridge) -> Vec<NormalizedPlug> {
+    if hue_bridge.user.is_empty() {
+        return Vec::new();
+    }
+    let response = get_hue_json(hue_bridge, format!("{}/lights", hue_bridge.user)).await;
+    let json: Value = _serde_json::de::from_str(&response).unwrap();
+
+    let json = json.as_object().unwrap();
+
+    let mut plugs = Vec::new();
+
+    for (id, light_json) in json.iter() {
+        let light = light_json.as_object().unwrap();
+        let state = light.get("state").unwrap().as_object().unwrap();
+
+        if light
+            .get("config")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("archetype")
+            .to_string()
+            .eq("plug")
+        {
+            plugs.push(NormalizedPlug {
+                id: format!("hue-{}-{}", hue_bridge.id, id),
+                name: light.get("name").to_string(),
+                on: state.get("on").to_bool(),
+                reachable: state.get("reachable").to_bool(),
+                type_: light.get("type").to_string(),
+                model: light.get("modelid").to_string(),
+                manufacturer: light.get("manufacturername").to_string(),
+                uniqueid: light.get("uniqueid").to_string(),
+                swversion: light.get("swversion").to_string(),
+                productid: Some(light.get("productid").to_string()),
+            });
+        }
+    }
+
+    plugs
 }
 
 #[derive(serde::Serialize, JsonSchema)]
