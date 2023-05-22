@@ -1,8 +1,6 @@
 use okapi::openapi3::OpenApi;
 use rocket::{get, http::Status, post, serde::json::Json, State};
-use rocket_okapi::{
-    openapi, openapi_get_routes, openapi_get_routes_spec, settings::OpenApiSettings,
-};
+use rocket_okapi::{openapi, openapi_get_routes_spec, settings::OpenApiSettings};
 use schemars::JsonSchema;
 
 use crate::{

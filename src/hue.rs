@@ -6,9 +6,7 @@ use rocket::{
     serde::{self, json::Json},
     State,
 };
-use rocket_okapi::{
-    openapi, openapi_get_routes, openapi_get_routes_spec, settings::OpenApiSettings,
-};
+use rocket_okapi::{openapi, openapi_get_routes_spec, settings::OpenApiSettings};
 use schemars::{
     JsonSchema,
     _serde_json::{self, Value},

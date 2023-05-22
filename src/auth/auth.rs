@@ -1,10 +1,8 @@
 use std::{collections::BTreeMap, env};
 
-use crypto::digest::Digest;
 use hmac::{Hmac, Mac};
-use jwt::{AlgorithmType, Header, Token, VerifyWithKey, SignWithKey};
+use jwt::{AlgorithmType, Header, SignWithKey, Token, VerifyWithKey};
 use okapi::openapi3::{Object, SecurityRequirement, SecurityScheme, SecuritySchemeData};
-use reqwest::header;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},

@@ -19,7 +19,6 @@ mod auth {
 
 use std::path::Path;
 
-use okapi::openapi3::{OpenApi, Server};
 use rocket::{
     catch, catchers,
     fs::FileServer,
@@ -29,14 +28,11 @@ use rocket::{
     serde::{self, json::Json},
     Build, Rocket,
 };
+use rocket_okapi::swagger_ui::{make_swagger_ui, SwaggerUIConfig};
 use rocket_okapi::{
     mount_endpoints_and_merged_docs, openapi, openapi_get_routes_spec,
     settings::{OpenApiSettings, UrlObject},
     JsonSchema,
-};
-use rocket_okapi::{
-    openapi_get_routes,
-    swagger_ui::{make_swagger_ui, SwaggerUIConfig},
 };
 use schemars::gen::SchemaSettings;
 
