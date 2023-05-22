@@ -1,3 +1,4 @@
+use okapi::openapi3::OpenApi;
 use rocket::{
     get,
     http::Status,
@@ -5,7 +6,9 @@ use rocket::{
     serde::{self, json::Json},
     State,
 };
-use rocket_okapi::{openapi, openapi_get_routes, settings::OpenApiSettings};
+use rocket_okapi::{
+    openapi, openapi_get_routes, openapi_get_routes_spec, settings::OpenApiSettings,
+};
 use schemars::{
     JsonSchema,
     _serde_json::{self, Value},
@@ -86,7 +89,7 @@ struct ConfigRequest {
     user: Option<String>,
 }
 
-#[openapi]
+#[openapi(tag = "Hue")]
 #[put("/config/add", format = "json", data = "<config_json>")]
 async fn add_config(
     jtw: JWTToken,
@@ -197,7 +200,7 @@ struct InitResponse {
     username: String,
 }
 
-#[openapi]
+#[openapi(tag = "Hue")]
 #[get("/init/<bridge_id>")]
 async fn init(
     jtw: JWTToken,
@@ -261,6 +264,6 @@ async fn init(
     }))
 }
 
-pub fn routes(settings: &mut OpenApiSettings) -> Vec<rocket::Route> {
-    openapi_get_routes![settings: init, add_config]
+pub fn routes(settings: &OpenApiSettings) -> (Vec<rocket::Route>, OpenApi) {
+    openapi_get_routes_spec![settings: init, add_config]
 }

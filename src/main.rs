@@ -19,7 +19,7 @@ mod auth {
 
 use std::path::Path;
 
-use okapi::openapi3::OpenApi;
+use okapi::openapi3::{OpenApi, Server};
 use rocket::{
     catch, catchers,
     fs::FileServer,
@@ -30,7 +30,7 @@ use rocket::{
     Build, Rocket,
 };
 use rocket_okapi::{
-    mount_endpoints_and_merged_docs, openapi,
+    mount_endpoints_and_merged_docs, openapi, openapi_get_routes_spec,
     settings::{OpenApiSettings, UrlObject},
     JsonSchema,
 };
@@ -64,21 +64,6 @@ fn status() -> Json<Status> {
     Json(status)
 }
 
-fn custom_openapi_spec() -> OpenApi {
-    use rocket_okapi::okapi::openapi3::Info;
-
-    OpenApi {
-        openapi: OpenApi::default_version(),
-        info: Info {
-            title: "Rust API".to_string(),
-            description: Some("Rust API".to_string()),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            ..Default::default()
-        },
-        ..Default::default()
-    }
-}
-
 #[catch(400)]
 fn bad_request() -> Json<&'static str> {
     Json("Bad Request")
@@ -104,15 +89,6 @@ fn internal_error() -> Json<&'static str> {
     Json("Internal Server Error")
 }
 
-macro_rules! route_spec {
-    ($routes:expr) => {
-        ($routes, custom_openapi_spec())
-    };
-    ($routes:expr, $openapi_spec:ident) => {
-        ($routes, $openapi_spec)
-    };
-}
-
 fn create_server() -> Rocket<Build> {
     let mut api = rocket::build();
 
@@ -124,6 +100,17 @@ fn create_server() -> Rocket<Build> {
     api = api
         .manage(connection::establish_connection())
         .mount("/", routes![redirect])
+        .mount(
+            "/docs",
+            make_swagger_ui(&SwaggerUIConfig {
+                urls: vec![UrlObject {
+                    name: "API".to_owned(),
+                    url: "../openapi.json".to_owned(),
+                }],
+                deep_linking: true,
+                ..Default::default()
+            }),
+        )
         .register(
             "/",
             catchers![
@@ -135,37 +122,18 @@ fn create_server() -> Rocket<Build> {
             ],
         );
 
-    let openapi_settings = &mut OpenApiSettings {
+    let openapi_settings = OpenApiSettings {
         schema_settings: SchemaSettings::openapi3(),
         ..Default::default()
     };
-    let docs_route_spec = route_spec![make_swagger_ui(&SwaggerUIConfig {
-        urls: vec![
-            UrlObject {
-                name: "API".to_string(),
-                url: "/api/openapi.json".to_owned(),
-            },
-            UrlObject {
-                name: "Auth".to_string(),
-                url: "/api/auth/openapi.json".to_owned(),
-            },
-            UrlObject {
-                name: "Hue".to_string(),
-                url: "/api/hue/openapi.json".to_owned(),
-            }
-        ],
-        deep_linking: true,
-        ..Default::default()
-    })];
 
     mount_endpoints_and_merged_docs! {
         api,
         "/".to_owned(),
         openapi_settings,
-        "/api" => route_spec![openapi_get_routes![openapi_settings: status]],
-        "/api/hue" => route_spec![hue::routes(openapi_settings)],
-        "/api/auth" => route_spec![auth::routes::routes(openapi_settings)],
-        "/docs" => docs_route_spec,
+        "/api" => openapi_get_routes_spec![openapi_settings: status],
+        "/api/hue" => hue::routes(&openapi_settings),
+        "/api/auth" => auth::routes::routes(&openapi_settings),
     };
 
     api

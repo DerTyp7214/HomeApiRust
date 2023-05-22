@@ -1,8 +1,10 @@
-use std::env;
+use std::{collections::BTreeMap, env};
 
-use crypto::sha2::Sha256;
-use jwt::{Header, Registered, Token};
+use crypto::digest::Digest;
+use hmac::{Hmac, Mac};
+use jwt::{AlgorithmType, Header, Token, VerifyWithKey, SignWithKey};
 use okapi::openapi3::{Object, SecurityRequirement, SecurityScheme, SecuritySchemeData};
+use reqwest::header;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -13,6 +15,7 @@ use rocket_okapi::{
 };
 use schemars::_serde_json;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 
 use crate::db::models::User;
 
@@ -46,10 +49,22 @@ pub fn verify_password(password: &str, hashed_password: &str) -> bool {
     bcrypt::verify(password, hashed_password).unwrap()
 }
 
-pub fn read_token(key: &str) -> Result<JWTToken, String> {
-    let token = Token::<Header, Registered>::parse(key).map_err(|_| "Invalid token")?;
-    if token.verify(get_secret_key().as_bytes(), Sha256::new()) {
-        let sub = token.claims.sub.unwrap();
+pub fn read_token(token_str: &str) -> Result<JWTToken, String> {
+    let key: Hmac<Sha256> = Hmac::new_from_slice(get_secret_key().as_bytes()).unwrap();
+
+    let token: Result<Token<Header, BTreeMap<String, String>, _>, jwt::Error> =
+        VerifyWithKey::verify_with_key(token_str, &key);
+
+    if token.is_ok() {
+        let token = token.unwrap();
+        let header = token.header();
+        let claims = token.claims();
+
+        if header.algorithm != AlgorithmType::Hs256 {
+            return Err("Invalid algorithm".into());
+        }
+
+        let sub = claims["sub"].clone();
         let token_data: JWTToken = _serde_json::from_str(&sub).unwrap();
         Ok(token_data)
     } else {
@@ -58,14 +73,19 @@ pub fn read_token(key: &str) -> Result<JWTToken, String> {
 }
 
 pub fn create_token(token_data: JWTToken) -> String {
-    let claims = Registered {
-        sub: Some(_serde_json::to_string(&token_data).unwrap()),
+    let key: Hmac<Sha256> = Hmac::new_from_slice(get_secret_key().as_bytes()).unwrap();
+
+    let header = Header {
+        algorithm: AlgorithmType::Hs256,
         ..Default::default()
     };
-    let token = Token::new(Header::default(), claims);
-    token
-        .signed(get_secret_key().as_bytes(), Sha256::new())
-        .unwrap()
+
+    let mut claims = BTreeMap::new();
+
+    claims.insert("sub", _serde_json::to_string(&token_data).unwrap());
+
+    let token = Token::new(header, claims);
+    token.sign_with_key(&key).unwrap().as_str().to_owned()
 }
 
 impl User {

@@ -1,5 +1,8 @@
+use okapi::openapi3::OpenApi;
 use rocket::{get, http::Status, post, serde::json::Json, State};
-use rocket_okapi::{openapi, openapi_get_routes, settings::OpenApiSettings};
+use rocket_okapi::{
+    openapi, openapi_get_routes, openapi_get_routes_spec, settings::OpenApiSettings,
+};
 use schemars::JsonSchema;
 
 use crate::{
@@ -50,7 +53,7 @@ fn connection_from_pool(pool: &State<SqlitePool>) -> SqlitePooledConnection {
     connection::get_connection(&pool).unwrap()
 }
 
-#[openapi]
+#[openapi(tag = "Auth")]
 #[post("/signup", format = "json", data = "<signup_request>")]
 fn signup(
     signup_request: Json<SignupRequest>,
@@ -171,7 +174,7 @@ struct LoginRequest {
     password: String,
 }
 
-#[openapi]
+#[openapi(tag = "Auth")]
 #[post("/login", format = "json", data = "<login_request>")]
 fn login(
     login_request: Json<LoginRequest>,
@@ -208,7 +211,7 @@ struct MeResponse {
     email: String,
 }
 
-#[openapi]
+#[openapi(tag = "Auth")]
 #[get("/refresh")]
 fn refresh(
     jwt: JWTToken,
@@ -233,7 +236,7 @@ fn refresh(
     }))
 }
 
-#[openapi]
+#[openapi(tag = "Auth")]
 #[get("/me")]
 fn me(jwt: JWTToken, db_pool: &State<SqlitePool>) -> Result<Json<MeResponse>, CustomResponse> {
     let connection = &mut connection_from_pool(db_pool);
@@ -254,6 +257,6 @@ fn me(jwt: JWTToken, db_pool: &State<SqlitePool>) -> Result<Json<MeResponse>, Cu
     }))
 }
 
-pub fn routes(settings: &mut OpenApiSettings) -> Vec<rocket::Route> {
-    openapi_get_routes![settings: signup, login, refresh, me]
+pub fn routes(settings: &OpenApiSettings) -> (Vec<rocket::Route>, OpenApi) {
+    openapi_get_routes_spec![settings: signup, login, refresh, me]
 }
