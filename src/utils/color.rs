@@ -52,7 +52,7 @@ pub fn rgb_to_hsv(red: u8, green: u8, blue: u8) -> (f32, f32, f32) {
 pub fn hsv_to_rgb(hue: f32, saturation: f32, brightness: f32) -> (u8, u8, u8) {
     let mut rgb = (0, 0, 0);
 
-    let mut h = hue / 60.0;
+    let h = hue / 60.0;
     let s = saturation / 100.0;
     let v = brightness / 100.0;
 

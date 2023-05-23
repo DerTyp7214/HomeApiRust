@@ -1,4 +1,4 @@
-use std::{fs::{create_dir_all, File}, path::Path};
+use std::{fs::{create_dir_all}, path::Path};
 
 use okapi::openapi3::OpenApi;
 use rocket::{fs::NamedFile, get, http::Status, put, State, data::ByteUnit};
@@ -34,7 +34,7 @@ pub async fn get_profile_pic(
 
     let user = user.unwrap();
 
-    let picture = get_picture_path(PictureType::PROFILE_PIC { user_id: user.id });
+    let picture = get_picture_path(PictureType::ProfilePic { user_id: user.id });
 
     if !Path::new(&picture).exists() {
         return Err(CustomResponse {
@@ -72,7 +72,7 @@ pub async fn put_profile_pic(
 
     let user = user.unwrap();
 
-    let picture = get_picture_path(PictureType::PROFILE_PIC { user_id: user.id });
+    let picture = get_picture_path(PictureType::ProfilePic { user_id: user.id });
 
     if !Path::new(&picture).parent().unwrap().exists() {
         create_dir_all(Path::new(&picture).parent().unwrap()).unwrap();

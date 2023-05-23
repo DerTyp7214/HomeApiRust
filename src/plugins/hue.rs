@@ -1,6 +1,6 @@
 use okapi::openapi3::OpenApi;
 use rocket::{
-    get,
+    delete, get,
     http::Status,
     put,
     serde::{self, json::Json},
@@ -54,17 +54,34 @@ async fn get_hue_json(hue_bridge: &HueBridge, path: String) -> String {
     res.unwrap()
 }
 
-async fn post_hue_json(hue_bridge: &HueBridge, path: String, body: String) -> String {
+async fn post_hue_json(
+    hue_bridge: &HueBridge,
+    path: String,
+    body: String,
+) -> Result<String, CustomResponse> {
     let res = client()
         .post(&format!("http://{}/api/{}", hue_bridge.ip, path))
         .body(body)
         .send()
-        .await
-        .unwrap()
-        .text()
         .await;
 
-    res.unwrap()
+    if res.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to connect to Hue Bridge".to_owned(),
+        });
+    }
+
+    let res = res.unwrap().text().await;
+
+    if res.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to connect to Hue Bridge".to_owned(),
+        });
+    }
+
+    Ok(res.unwrap())
 }
 
 async fn put_hue_json(hue_bridge: &HueBridge, path: String, body: String) -> String {
@@ -288,6 +305,60 @@ struct InitResponse {
 }
 
 #[openapi(tag = "Hue")]
+#[get("/bridges")]
+async fn get_bridges(
+    jtw: JWTToken,
+    _dbpool: &State<SqlitePool>,
+) -> Result<Json<Vec<HueBridge>>, CustomResponse> {
+    let connection = &mut connection_from_pool(_dbpool);
+
+    let hue_bridges = HueBridge::get_huebridges_by_user_id(connection, jtw.user_id);
+
+    if hue_bridges.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not get hue bridges".to_string(),
+        });
+    }
+
+    let hue_bridges = hue_bridges.unwrap();
+
+    Ok(Json(hue_bridges))
+}
+
+#[openapi(tag = "Hue")]
+#[delete("/config/<bridge_id>")]
+async fn delete_bridge(
+    jtw: JWTToken,
+    _dbpool: &State<SqlitePool>,
+    bridge_id: String,
+) -> Result<Json<()>, CustomResponse> {
+    let connection = &mut connection_from_pool(_dbpool);
+
+    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jtw.user_id, &bridge_id);
+
+    if hue_bridge.is_err() {
+        return Err(CustomResponse {
+            status: Status::NotFound,
+            message: "Bridge not found".to_string(),
+        });
+    }
+
+    let hue_bridge = hue_bridge.unwrap();
+
+    let hue_bridge = hue_bridge.delete(connection);
+
+    if hue_bridge.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not delete hue bridge".to_string(),
+        });
+    }
+
+    Ok(Json(()))
+}
+
+#[openapi(tag = "Hue")]
 #[get("/init/<bridge_id>")]
 async fn init(
     jtw: JWTToken,
@@ -313,6 +384,12 @@ async fn init(
         "{\"devicetype\":\"hue#home api rust\"}".to_string(),
     )
     .await;
+
+    if user_request.is_err() {
+        return Err(user_request.unwrap_err());
+    }
+
+    let user_request = user_request.unwrap();
 
     let json_value: Value = _serde_json::de::from_str(&user_request).unwrap();
 
@@ -352,5 +429,5 @@ async fn init(
 }
 
 pub fn routes(settings: &OpenApiSettings) -> (Vec<rocket::Route>, OpenApi) {
-    openapi_get_routes_spec![settings: init, add_config]
+    openapi_get_routes_spec![settings: init, add_config, get_bridges, delete_bridge]
 }
