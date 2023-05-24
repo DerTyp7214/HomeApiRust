@@ -1,4 +1,4 @@
-use schemars::_serde_json::{Value, Map};
+use schemars::_serde_json::Value;
 
 pub trait ValueExt {
     fn to_string(&self) -> String;
