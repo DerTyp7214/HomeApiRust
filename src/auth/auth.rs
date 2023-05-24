@@ -21,7 +21,7 @@ static TOKEN_VERSION: &str = "1.0.0";
 
 static mut STATIC_SECRET_KEY: Option<String> = None;
 
-fn get_secret_key() -> String {
+pub fn get_secret_key() -> String {
     unsafe {
         if STATIC_SECRET_KEY.is_none() {
             STATIC_SECRET_KEY = Some(env::var("SECRET_KEY").unwrap_or("".to_string()));

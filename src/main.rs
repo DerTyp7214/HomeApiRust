@@ -33,44 +33,21 @@ mod cors;
 use std::path::Path;
 
 use rocket::{
-    catch, catchers,
-    fs::FileServer,
-    get,
-    response::Redirect,
-    routes,
-    serde::{self, json::Json},
-    Build, Rocket,
+    catch, catchers, figment::Figment, fs::FileServer, get, response::Redirect, routes,
+    serde::json::Json, Build, Rocket,
 };
 use rocket_okapi::swagger_ui::{make_swagger_ui, SwaggerUIConfig};
 use rocket_okapi::{
-    mount_endpoints_and_merged_docs, openapi, openapi_get_routes_spec,
+    mount_endpoints_and_merged_docs,
     settings::{OpenApiSettings, UrlObject},
-    JsonSchema,
 };
 use schemars::gen::SchemaSettings;
 
 use crate::db::connection;
 
-#[derive(serde::Serialize, JsonSchema)]
-struct Status {
-    status: String,
-    version: String,
-}
-
 #[get("/")]
 fn redirect() -> Redirect {
     rocket::response::Redirect::to("/static")
-}
-
-#[openapi]
-#[get("/status")]
-fn status() -> Json<Status> {
-    let status = Status {
-        status: "OK".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-    };
-
-    Json(status)
 }
 
 #[catch(400)]
@@ -98,8 +75,15 @@ fn internal_error() -> Json<&'static str> {
     Json("Internal Server Error")
 }
 
+fn configure_rocket() -> Figment {
+    rocket::Config::figment().merge((
+        "secret_key",
+        "ENDM3ymkXOrZHhK1Z2q8bLOaxZr3LTGm540bd6oXGheaX8KmltC+cSwnJ0b9zK7PFiaXPp+zFBF+BPnZF/htXw==",
+    ))
+}
+
 fn create_server() -> Rocket<Build> {
-    let mut api = rocket::build();
+    let mut api = rocket::custom(configure_rocket());
 
     let dist = Path::new("dist");
     if dist.exists() {
@@ -141,7 +125,7 @@ fn create_server() -> Rocket<Build> {
         api,
         "/".to_owned(),
         openapi_settings,
-        "/api" => openapi_get_routes_spec![openapi_settings: status, plugins::main::lights, plugins::main::plugs],
+        "/api" => plugins::main::routes(&openapi_settings),
         "/api/user" => plugins::user::routes(&openapi_settings),
         "/api/hue" => plugins::hue::routes(&openapi_settings),
         "/api/auth" => auth::routes::routes(&openapi_settings),

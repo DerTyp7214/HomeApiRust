@@ -1,3 +1,4 @@
+use ::serde::{Deserialize, Serialize};
 use okapi::openapi3::OpenApi;
 use rocket::{
     delete, get,
@@ -9,7 +10,7 @@ use rocket::{
 use rocket_okapi::{openapi, openapi_get_routes_spec, settings::OpenApiSettings};
 use schemars::{
     JsonSchema,
-    _serde_json::{self, Value},
+    _serde_json::{self, json, Value},
 };
 
 use crate::{
@@ -19,10 +20,10 @@ use crate::{
         models::{HueBridge, NewHueBridge, UpdateHueBridge, UpdateUserSettings, User},
     },
     repsonses::CustomResponse,
-    utils::color::{hsb_to_hsv, hsv_to_rgb},
+    utils::color::{hsb_to_hsv, hsv_to_hsb, hsv_to_rgb, rgb_to_hsv},
 };
 
-use super::main::{NormalizedColor, NormalizedLight, NormalizedPlug};
+use super::main::{LightState, NormalizedColor, NormalizedLight, NormalizedPlug, PlugState};
 use crate::utils::extensions::ValueExt;
 
 static mut STATIC_CLIENT: Option<reqwest::Client> = None;
@@ -41,26 +42,44 @@ fn connection_from_pool(pool: &State<SqlitePool>) -> SqlitePooledConnection {
     connection::get_connection(&pool).unwrap()
 }
 
-async fn get_hue_json(hue_bridge: &HueBridge, path: String) -> String {
+async fn get_hue_json(hue_bridge: &HueBridge, mut path: String) -> Result<String, CustomResponse> {
+    if path.starts_with('/') {
+        path.remove(0);
+    }
     let res = client()
-        .get(&format!("http://{}/api/{}", hue_bridge.ip, path))
+        .get(&format!("http://{}/api/{}/{}", hue_bridge.ip, hue_bridge.user, path))
         .send()
-        .await
-        .ok()
-        .unwrap()
-        .text()
         .await;
 
-    res.unwrap()
+    if res.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to connect to Hue Bridge".to_owned(),
+        });
+    }
+
+    let res = res.unwrap().text().await;
+
+    if res.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to connect to Hue Bridge".to_owned(),
+        });
+    }
+
+    Ok(res.unwrap())
 }
 
 async fn post_hue_json(
     hue_bridge: &HueBridge,
-    path: String,
+    mut path: String,
     body: String,
 ) -> Result<String, CustomResponse> {
+    if path.starts_with('/') {
+        path.remove(0);
+    }
     let res = client()
-        .post(&format!("http://{}/api/{}", hue_bridge.ip, path))
+        .post(&format!("http://{}/api/{}/{}", hue_bridge.ip, hue_bridge.user, path))
         .body(body)
         .send()
         .await;
@@ -84,24 +103,120 @@ async fn post_hue_json(
     Ok(res.unwrap())
 }
 
-async fn put_hue_json(hue_bridge: &HueBridge, path: String, body: String) -> String {
+async fn put_hue_json(
+    hue_bridge: &HueBridge,
+    mut path: String,
+    body: String,
+) -> Result<String, CustomResponse> {
+    if path.starts_with('/') {
+        path.remove(0);
+    }
     let res = client()
-        .put(&format!("http://{}/api/{}", hue_bridge.ip, path))
+        .put(&format!("http://{}/api/{}/{}", hue_bridge.ip, hue_bridge.user, path))
         .body(body)
         .send()
-        .await
-        .unwrap()
-        .text()
         .await;
 
-    res.unwrap()
+    if res.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to connect to Hue Bridge".to_owned(),
+        });
+    }
+
+    let res = res.unwrap().text().await;
+
+    if res.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to connect to Hue Bridge".to_owned(),
+        });
+    }
+
+    Ok(res.unwrap())
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+struct HueLightState {
+    on: Option<bool>,
+    sat: Option<u8>,
+    bri: Option<u8>,
+    hue: Option<u16>,
+}
+
+pub async fn set_light(
+    hue_bridge: &HueBridge,
+    light_id: String,
+    light_state: LightState,
+) -> Result<Status, CustomResponse> {
+    if hue_bridge.user.is_empty() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Hue Bridge not configured".to_owned(),
+        });
+    }
+
+    let brigthness = light_state.brigthness;
+    let color = light_state.color;
+
+    if light_state.on.is_none() && brigthness.is_none() && color.is_none() {
+        return Ok(Status::Ok);
+    }
+
+    let mut hsb: Option<(u16, u8, u8)> = None;
+
+    if color.is_some() {
+        let color = color.unwrap();
+        if color.len() > 0 {
+            let hsv = rgb_to_hsv(
+                color.get(0).unwrap().0,
+                color.get(0).unwrap().1,
+                color.get(0).unwrap().2,
+            );
+
+            hsb = Some(hsv_to_hsb(hsv.0, hsv.1, hsv.2));
+        }
+    }
+
+    let mut body = HueLightState {
+        on: light_state.on,
+        hue: None,
+        sat: None,
+        bri: None,
+    };
+
+    if hsb.is_some() {
+        body.hue = Some(hsb.unwrap().0);
+        body.sat = Some(hsb.unwrap().1);
+        body.bri = Some(hsb.unwrap().2);
+    }
+
+    let response = put_hue_json(
+        hue_bridge,
+        format!("lights/{}/state", light_id),
+        _serde_json::ser::to_string(&body).unwrap(),
+    )
+    .await;
+
+    if response.is_err() {
+        return Err(response.unwrap_err());
+    }
+
+    Ok(Status::Ok)
 }
 
 pub async fn get_lights(hue_bridge: &HueBridge) -> Vec<NormalizedLight> {
     if hue_bridge.user.is_empty() {
         return Vec::new();
     }
-    let response = get_hue_json(hue_bridge, format!("{}/lights", hue_bridge.user)).await;
+    let response = get_hue_json(hue_bridge, "lights".to_owned()).await;
+
+    if response.is_err() {
+        return Vec::new();
+    }
+
+    let response = response.unwrap();
+
     let json: Value = _serde_json::de::from_str(&response).unwrap();
 
     let json = json.as_object().unwrap();
@@ -140,11 +255,108 @@ pub async fn get_lights(hue_bridge: &HueBridge) -> Vec<NormalizedLight> {
     lights
 }
 
+pub async fn get_light(
+    hue_bridge: &HueBridge,
+    light_id: String,
+) -> Result<NormalizedLight, CustomResponse> {
+    if hue_bridge.user.is_empty() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Hue Bridge not configured".to_owned(),
+        });
+    }
+
+    let response = get_hue_json(
+        hue_bridge,
+        format!("lights/{}", light_id),
+    )
+    .await;
+
+    if response.is_err() {
+        return Err(response.unwrap_err());
+    }
+
+    let response = response.unwrap();
+
+    let json: Value = _serde_json::de::from_str(&response).unwrap();
+
+    let json = json.as_object().unwrap();
+
+    let light = json.get("state").unwrap().as_object().unwrap();
+
+    if !light.contains_key("colormode") {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Light is not a color light".to_owned(),
+        });
+    }
+
+    let hsv = hsb_to_hsv(
+        light.get("hue").to_f64() as f32,
+        light.get("sat").to_f64() as f32,
+        light.get("bri").to_f64() as f32,
+    );
+
+    let rgb = hsv_to_rgb(hsv.0, hsv.1, hsv.2);
+
+    Ok(NormalizedLight {
+        id: format!("hue-{}-{}", hue_bridge.id, light_id),
+        name: json.get("name").to_string(),
+        on: light.get("on").to_bool(),
+        brightness: (light.get("bri").to_f64() / 255.0) as f32,
+        color: vec![NormalizedColor(rgb.0, rgb.1, rgb.2)],
+        reachable: light.get("reachable").to_bool(),
+        type_: json.get("type").to_string(),
+        model: json.get("modelid").to_string(),
+        manufacturer: json.get("manufacturername").to_string(),
+        uniqueid: json.get("uniqueid").to_string(),
+        swversion: json.get("swversion").to_string(),
+        productid: Some(json.get("productid").to_string()),
+    })
+}
+
+pub async fn set_plug(
+    hue_bridge: &HueBridge,
+    plug_id: String,
+    plug_state: PlugState,
+) -> Result<Status, CustomResponse> {
+    if plug_state.on.is_none() {
+        return Ok(Status::Ok);
+    }
+
+    if hue_bridge.user.is_empty() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Hue Bridge not configured".to_owned(),
+        });
+    }
+
+    let response = put_hue_json(
+        hue_bridge,
+        format!("lights/{}/state", plug_id),
+        _serde_json::ser::to_string(&plug_state).unwrap(),
+    )
+    .await;
+
+    if response.is_err() {
+        return Err(response.unwrap_err());
+    }
+
+    Ok(Status::Ok)
+}
+
 pub async fn get_plugs(hue_bridge: &HueBridge) -> Vec<NormalizedPlug> {
     if hue_bridge.user.is_empty() {
         return Vec::new();
     }
-    let response = get_hue_json(hue_bridge, format!("{}/lights", hue_bridge.user)).await;
+    let response = get_hue_json(hue_bridge, "lights".to_owned()).await;
+
+    if response.is_err() {
+        return Vec::new();
+    }
+
+    let response = response.unwrap();
+
     let json: Value = _serde_json::de::from_str(&response).unwrap();
 
     let json = json.as_object().unwrap();
@@ -180,6 +392,64 @@ pub async fn get_plugs(hue_bridge: &HueBridge) -> Vec<NormalizedPlug> {
     }
 
     plugs
+}
+
+pub async fn get_plug(
+    hue_bridge: &HueBridge,
+    plug_id: String,
+) -> Result<NormalizedPlug, CustomResponse> {
+    if hue_bridge.user.is_empty() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Hue Bridge not configured".to_owned(),
+        });
+    }
+
+    let response = get_hue_json(
+        hue_bridge,
+        format!("lights/{}", plug_id),
+    )
+    .await;
+
+    if response.is_err() {
+        return Err(response.unwrap_err());
+    }
+
+    let response = response.unwrap();
+
+    let json: Value = _serde_json::de::from_str(&response).unwrap();
+
+    let json = json.as_object().unwrap();
+
+    let light = json.get("state").unwrap().as_object().unwrap();
+
+    if !light
+        .get("config")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("archetype")
+        .to_string()
+        .eq("plug")
+    {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Light is not a plug".to_owned(),
+        });
+    }
+
+    Ok(NormalizedPlug {
+        id: format!("hue-{}-{}", hue_bridge.id, plug_id),
+        name: json.get("name").to_string(),
+        on: light.get("on").to_bool(),
+        reachable: light.get("reachable").to_bool(),
+        type_: json.get("type").to_string(),
+        model: json.get("modelid").to_string(),
+        manufacturer: json.get("manufacturername").to_string(),
+        uniqueid: json.get("uniqueid").to_string(),
+        swversion: json.get("swversion").to_string(),
+        productid: Some(json.get("productid").to_string()),
+    })
 }
 
 #[derive(serde::Serialize, JsonSchema)]
@@ -332,7 +602,7 @@ async fn delete_bridge(
     jtw: JWTToken,
     _dbpool: &State<SqlitePool>,
     bridge_id: String,
-) -> Result<Json<()>, CustomResponse> {
+) -> Result<Json<Value>, CustomResponse> {
     let connection = &mut connection_from_pool(_dbpool);
 
     let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jtw.user_id, &bridge_id);
@@ -355,7 +625,7 @@ async fn delete_bridge(
         });
     }
 
-    Ok(Json(()))
+    Ok(Json(json!({})))
 }
 
 #[openapi(tag = "Hue")]

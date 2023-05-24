@@ -6,11 +6,11 @@ pub fn hsb_to_hsv(hue: f32, saturation: f32, brightness: f32) -> (f32, f32, f32)
     )
 }
 
-pub fn hsv_to_hsb(hue: f32, saturation: f32, brightness: f32) -> (f32, f32, f32) {
+pub fn hsv_to_hsb(hue: f32, saturation: f32, brightness: f32) -> (u16, u8, u8) {
     (
-        hue / 360.0 * 65535.0,
-        saturation / 100.0 * 255.0,
-        brightness / 100.0 * 255.0,
+        (hue / 360.0 * 65535.0).round() as u16,
+        (saturation / 100.0 * 255.0).round() as u8,
+        (brightness / 100.0 * 255.0).round() as u8,
     )
 }
 

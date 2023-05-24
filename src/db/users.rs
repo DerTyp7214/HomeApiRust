@@ -108,6 +108,14 @@ impl User {
         HueBridge::get_huebridges_by_user_id(conn, self.id)
     }
 
+    pub fn get_huebridge(
+        &self,
+        conn: &mut SqliteConnection,
+        huebridge_id: &str,
+    ) -> Result<HueBridge, diesel::result::Error> {
+        HueBridge::get_huebridge_by_bridge_id(conn, self.id, huebridge_id)
+    }
+
     pub fn get_wleditems(
         &self,
         conn: &mut SqliteConnection,
