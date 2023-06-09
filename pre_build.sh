@@ -8,7 +8,3 @@ rustup target add x86_64-unknown-linux-musl
 
 chmod +x setup.sh
 ./setup.sh
-
-ls -la
-ls -la target
-ls -la target/release
