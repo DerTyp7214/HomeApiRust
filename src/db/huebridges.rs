@@ -21,7 +21,10 @@ impl HueBridge {
                 return Err(result.unwrap_err());
             }
 
-            let inserted_huebridge = huebridges::table.order(huebridges::id.desc()).first(conn);
+            let inserted_huebridge = huebridges::table
+                .order(huebridges::id.desc())
+                .filter(huebridges::user_settings_id.eq(new_huebridge.user_settings_id))
+                .first(conn);
 
             if inserted_huebridge.is_err() {
                 return inserted_huebridge;

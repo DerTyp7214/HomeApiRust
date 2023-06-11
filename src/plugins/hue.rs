@@ -47,7 +47,10 @@ async fn get_hue_json(hue_bridge: &HueBridge, mut path: String) -> Result<String
         path.remove(0);
     }
     let res = client()
-        .get(&format!("http://{}/api/{}/{}", hue_bridge.ip, hue_bridge.user, path))
+        .get(&format!(
+            "http://{}/api/{}/{}",
+            hue_bridge.ip, hue_bridge.user, path
+        ))
         .send()
         .await;
 
@@ -79,7 +82,10 @@ async fn post_hue_json(
         path.remove(0);
     }
     let res = client()
-        .post(&format!("http://{}/api/{}/{}", hue_bridge.ip, hue_bridge.user, path))
+        .post(&format!(
+            "http://{}/api/{}/{}",
+            hue_bridge.ip, hue_bridge.user, path
+        ))
         .body(body)
         .send()
         .await;
@@ -112,7 +118,10 @@ async fn put_hue_json(
         path.remove(0);
     }
     let res = client()
-        .put(&format!("http://{}/api/{}/{}", hue_bridge.ip, hue_bridge.user, path))
+        .put(&format!(
+            "http://{}/api/{}/{}",
+            hue_bridge.ip, hue_bridge.user, path
+        ))
         .body(body)
         .send()
         .await;
@@ -266,11 +275,7 @@ pub async fn get_light(
         });
     }
 
-    let response = get_hue_json(
-        hue_bridge,
-        format!("lights/{}", light_id),
-    )
-    .await;
+    let response = get_hue_json(hue_bridge, format!("lights/{}", light_id)).await;
 
     if response.is_err() {
         return Err(response.unwrap_err());
@@ -405,11 +410,7 @@ pub async fn get_plug(
         });
     }
 
-    let response = get_hue_json(
-        hue_bridge,
-        format!("lights/{}", plug_id),
-    )
-    .await;
+    let response = get_hue_json(hue_bridge, format!("lights/{}", plug_id)).await;
 
     if response.is_err() {
         return Err(response.unwrap_err());
@@ -548,7 +549,7 @@ async fn add_config(
     let hue_bridge = HueBridge::create_huebridge(
         connection,
         &NewHueBridge {
-            id: &usersettings.hue_index.to_string(),
+            id: &usersettings.hue_index.to_owned().to_string(),
             ip: config_ip,
             user: config_user,
             user_settings_id: &usersettings.id,
