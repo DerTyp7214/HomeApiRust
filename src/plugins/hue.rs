@@ -266,8 +266,9 @@ pub async fn get_lights(hue_bridge: &HueBridge) -> Vec<NormalizedLight> {
 
 pub async fn get_light(
     hue_bridge: &HueBridge,
-    light_id: String,
+    light_id: &String,
 ) -> Result<NormalizedLight, CustomResponse> {
+    let light_id = light_id.to_owned();
     if hue_bridge.user.is_empty() {
         return Err(CustomResponse {
             status: Status::InternalServerError,
@@ -275,7 +276,7 @@ pub async fn get_light(
         });
     }
 
-    let response = get_hue_json(hue_bridge, format!("lights/{}", light_id)).await;
+    let response = get_hue_json(hue_bridge, format!("lights/{}", light_id.to_owned())).await;
 
     if response.is_err() {
         return Err(response.unwrap_err());
@@ -285,7 +286,16 @@ pub async fn get_light(
 
     let json: Value = _serde_json::de::from_str(&response).unwrap();
 
-    let json = json.as_object().unwrap();
+    let json = json.as_object();
+
+    if json.is_none() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to parse Hue Bridge response".to_owned(),
+        });
+    }
+
+    let json = json.unwrap();
 
     let light = json.get("state").unwrap().as_object().unwrap();
 
@@ -401,8 +411,9 @@ pub async fn get_plugs(hue_bridge: &HueBridge) -> Vec<NormalizedPlug> {
 
 pub async fn get_plug(
     hue_bridge: &HueBridge,
-    plug_id: String,
+    plug_id: &String,
 ) -> Result<NormalizedPlug, CustomResponse> {
+    let plug_id = plug_id.to_owned();
     if hue_bridge.user.is_empty() {
         return Err(CustomResponse {
             status: Status::InternalServerError,
@@ -420,11 +431,20 @@ pub async fn get_plug(
 
     let json: Value = _serde_json::de::from_str(&response).unwrap();
 
-    let json = json.as_object().unwrap();
+    let json = json.as_object();
+
+    if json.is_none() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Failed to parse Hue Bridge response".to_owned(),
+        });
+    }
+
+    let json = json.unwrap();
 
     let light = json.get("state").unwrap().as_object().unwrap();
 
-    if !light
+    if !json
         .get("config")
         .unwrap()
         .as_object()

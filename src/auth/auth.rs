@@ -31,7 +31,7 @@ pub fn get_secret_key() -> String {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct JWTToken {
     pub user_id: i32,
     pub username: String,

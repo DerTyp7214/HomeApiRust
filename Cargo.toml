@@ -1,6 +1,6 @@
 [package]
 name = "home_api_rust"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,6 +15,7 @@ jwt = "0.16.0"
 schemars = "0.8.10"
 crypto = { version = "0.5.0", features = ["digest"] }
 hmac = "0.12.1"
+futures = "0.3.0"
 
 [dependencies.serde]
 version = "1.0"

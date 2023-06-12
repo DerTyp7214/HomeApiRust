@@ -32,22 +32,62 @@ mod cors;
 
 use std::path::Path;
 
+use auth::auth::JWTToken;
+
+use plugins::main::{NormalizedLight, NormalizedPlug};
+use rocket::response::stream::{Event, EventStream};
+use rocket::tokio::select;
+use rocket::tokio::sync::broadcast::error::RecvError;
+use rocket::tokio::sync::broadcast::{channel, Sender};
 use rocket::{
     catch, catchers, figment::Figment, fs::FileServer, get, response::Redirect, routes,
     serde::json::Json, Build, Rocket,
 };
+use rocket::{FromForm, Shutdown, State};
 use rocket_okapi::swagger_ui::{make_swagger_ui, SwaggerUIConfig};
 use rocket_okapi::{
     mount_endpoints_and_merged_docs,
     settings::{OpenApiSettings, UrlObject},
 };
+use schemars::_serde_json;
 use schemars::gen::SchemaSettings;
+use serde::{Deserialize, Serialize};
 
 use crate::db::connection;
 
 #[get("/")]
 fn redirect() -> Redirect {
     rocket::response::Redirect::to("/static")
+}
+
+#[get("/sse")]
+pub async fn events(
+    jwt: JWTToken,
+    queue: &State<Sender<InternalMessage>>,
+    mut end: Shutdown,
+) -> EventStream![] {
+    let mut rx = queue.subscribe();
+    EventStream! {
+        loop {
+            let msg = select! {
+                msg = rx.recv() => match msg {
+                    Ok(msg) => msg,
+                    Err(RecvError::Closed) => break,
+                    Err(RecvError::Lagged(_)) => continue,
+                },
+                _ = &mut end => break,
+            };
+
+            if msg.token.user_id != jwt.user_id {
+                yield Event::json(&Message {
+                    _type: msg._type,
+                    data: "".to_owned(),
+                });
+            } else {
+                yield Event::json(&msg.to_message());
+            }
+        }
+    }
 }
 
 #[catch(400)]
@@ -82,6 +122,44 @@ fn configure_rocket() -> Figment {
     ))
 }
 
+#[derive(Debug, Clone, FromForm, Serialize, Deserialize)]
+pub struct Message {
+    #[serde(rename(serialize = "type", deserialize = "type"))]
+    _type: String,
+    data: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct InternalMessage {
+    _type: String,
+    data: String,
+    token: JWTToken,
+}
+
+impl InternalMessage {
+    pub fn light_update(light: NormalizedLight, token: JWTToken) -> InternalMessage {
+        InternalMessage {
+            _type: "light_update".to_owned(),
+            data: _serde_json::to_string(&light).unwrap(),
+            token,
+        }
+    }
+    pub fn plug_update(plug: NormalizedPlug, token: JWTToken) -> InternalMessage {
+        InternalMessage {
+            _type: "plug_update".to_owned(),
+            data: _serde_json::to_string(&plug).unwrap(),
+            token,
+        }
+    }
+
+    pub fn to_message(&self) -> Message {
+        Message {
+            _type: self._type.clone(),
+            data: self.data.clone(),
+        }
+    }
+}
+
 fn create_server() -> Rocket<Build> {
     let mut api = rocket::custom(configure_rocket());
 
@@ -93,7 +171,8 @@ fn create_server() -> Rocket<Build> {
     api = api
         .attach(cors::CORS)
         .manage(connection::establish_connection())
-        .mount("/", routes![redirect, cors::all_options])
+        .manage(channel::<InternalMessage>(1024).0)
+        .mount("/", routes![redirect, events, cors::all_options])
         .mount(
             "/docs",
             make_swagger_ui(&SwaggerUIConfig {

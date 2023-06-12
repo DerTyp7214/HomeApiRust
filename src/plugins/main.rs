@@ -1,5 +1,5 @@
 use okapi::openapi3::OpenApi;
-use rocket::{get, http::Status, put, serde::json::Json, State};
+use rocket::{get, http::Status, put, serde::json::Json, tokio::sync::broadcast::Sender, State};
 use rocket_okapi::{openapi, openapi_get_routes_spec, settings::OpenApiSettings};
 use schemars::{
     JsonSchema,
@@ -14,6 +14,7 @@ use crate::{
         models::User,
     },
     repsonses::CustomResponse,
+    InternalMessage,
 };
 
 use super::hue;
@@ -98,13 +99,15 @@ async fn get_lights(
 
 async fn get_light(
     connection: &mut SqlitePooledConnection,
-    user: User,
-    light_id: String,
+    user: &User,
+    light_id: &String,
 ) -> Result<NormalizedLight, CustomResponse> {
+    let light_id = light_id.to_owned();
     let provider = light_id.split('-').nth(0).unwrap();
 
     if provider == "hue" {
         let bridge_id = light_id.split('-').nth(1).unwrap();
+        let light_id = light_id.split('-').nth(2).unwrap();
 
         let bridge = user.get_huebridge(connection, bridge_id);
 
@@ -117,7 +120,7 @@ async fn get_light(
 
         let bridge = bridge.unwrap();
 
-        let light = hue::get_light(&bridge, light_id).await;
+        let light = hue::get_light(&bridge, &light_id.to_owned()).await;
 
         if light.is_err() {
             return Err(CustomResponse {
@@ -139,10 +142,11 @@ async fn get_light(
 
 async fn set_light_state(
     connection: &mut SqlitePooledConnection,
-    user: User,
-    light_id: String,
+    user: &User,
+    light_id: &String,
     state: LightState,
 ) -> Result<(), CustomResponse> {
+    let light_id = light_id.to_owned();
     let provider = light_id.split('-').nth(0).unwrap();
 
     if provider == "hue" {
@@ -202,13 +206,15 @@ async fn get_plugs(
 
 async fn get_plug(
     connection: &mut SqlitePooledConnection,
-    user: User,
-    plug_id: String,
+    user: &User,
+    plug_id: &String,
 ) -> Result<NormalizedPlug, CustomResponse> {
+    let plug_id = plug_id.to_owned();
     let provider = plug_id.split('-').nth(0).unwrap();
 
     if provider == "hue" {
         let bridge_id = plug_id.split('-').nth(1).unwrap();
+        let plug_id = plug_id.split('-').nth(2).unwrap();
 
         let bridge = user.get_huebridge(connection, bridge_id);
 
@@ -221,7 +227,7 @@ async fn get_plug(
 
         let bridge = bridge.unwrap();
 
-        let plug = hue::get_plug(&bridge, plug_id).await;
+        let plug = hue::get_plug(&bridge, &plug_id.to_owned()).await;
 
         if plug.is_err() {
             return Err(CustomResponse {
@@ -243,10 +249,11 @@ async fn get_plug(
 
 async fn set_plug_state(
     connection: &mut SqlitePooledConnection,
-    user: User,
-    plug_id: String,
+    user: &User,
+    plug_id: &String,
     state: PlugState,
 ) -> Result<(), CustomResponse> {
+    let plug_id = plug_id.to_owned();
     let provider = plug_id.split('-').nth(0).unwrap();
 
     if provider == "hue" {
@@ -338,7 +345,7 @@ pub async fn light(
 
     let user = user.unwrap();
 
-    let response = get_light(connection, user, light_id).await;
+    let response = get_light(connection, &user, &light_id).await;
 
     if response.is_err() {
         return Err(response.err().unwrap());
@@ -354,6 +361,7 @@ pub async fn set_light(
     pool: &State<SqlitePool>,
     light_id: String,
     state: Json<LightState>,
+    queue: &State<Sender<InternalMessage>>,
 ) -> Result<Json<Value>, CustomResponse> {
     let connection = &mut connection::get_connection(pool).unwrap();
 
@@ -368,10 +376,16 @@ pub async fn set_light(
 
     let user = user.unwrap();
 
-    let response = set_light_state(connection, user, light_id, state.into_inner()).await;
+    let response = set_light_state(connection, &user, &light_id, state.into_inner()).await;
 
     if response.is_err() {
         return Err(response.err().unwrap());
+    }
+
+    let response = get_light(connection, &user, &light_id).await;
+
+    if response.is_ok() {
+        let _ = queue.send(InternalMessage::light_update(response.unwrap(), jwt));
     }
 
     Ok(Json(json!({})))
@@ -425,7 +439,7 @@ pub async fn plug(
 
     let user = user.unwrap();
 
-    let response = get_plug(connection, user, plug_id).await;
+    let response = get_plug(connection, &user, &plug_id).await;
 
     if response.is_err() {
         return Err(response.err().unwrap());
@@ -441,6 +455,7 @@ pub async fn set_plug(
     pool: &State<SqlitePool>,
     plug_id: String,
     state: Json<PlugState>,
+    queue: &State<Sender<InternalMessage>>,
 ) -> Result<Json<Value>, CustomResponse> {
     let connection = &mut connection::get_connection(pool).unwrap();
 
@@ -455,10 +470,16 @@ pub async fn set_plug(
 
     let user = user.unwrap();
 
-    let response = set_plug_state(connection, user, plug_id, state.into_inner()).await;
+    let response = set_plug_state(connection, &user, &plug_id, state.into_inner()).await;
 
     if response.is_err() {
         return Err(response.err().unwrap());
+    }
+
+    let response = get_plug(connection, &user, &plug_id).await;
+
+    if response.is_ok() {
+        let _ = queue.send(InternalMessage::plug_update(response.unwrap(), jwt));
     }
 
     Ok(Json(json!({})))
