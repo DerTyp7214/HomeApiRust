@@ -40,8 +40,8 @@ use rocket::tokio::select;
 use rocket::tokio::sync::broadcast::error::RecvError;
 use rocket::tokio::sync::broadcast::{channel, Sender};
 use rocket::{
-    catch, catchers, figment::Figment, fs::FileServer, get, response::Redirect, routes,
-    serde::json::Json, Build, Rocket,
+    catch, catchers, figment::Figment, fs::relative, fs::FileServer, get, response::Redirect,
+    routes, serde::json::Json, Build, Rocket,
 };
 use rocket::{FromForm, Shutdown, State};
 use rocket_okapi::swagger_ui::{make_swagger_ui, SwaggerUIConfig};
@@ -163,7 +163,7 @@ impl InternalMessage {
 fn create_server() -> Rocket<Build> {
     let mut api = rocket::custom(configure_rocket());
 
-    let dist = Path::new("dist");
+    let dist = Path::new(relative!("dist"));
     if dist.exists() {
         api = api.mount("/static", FileServer::from(dist));
     }
@@ -216,6 +216,12 @@ fn create_server() -> Rocket<Build> {
 #[rocket::main]
 async fn main() {
     dotenv::dotenv().ok();
+
+    if std::env::var("MIGRATE").is_ok() {
+        connection::run_migrations();
+        return;
+    }
+
     let launch_result = create_server().launch().await;
 
     match launch_result {

@@ -21,3 +21,10 @@ pub fn get_connection(pool: &SqlitePool) -> Result<SqlitePooledConnection, PoolE
     let _pool = pool.get().unwrap();
     Ok(_pool)
 }
+
+pub fn run_migrations() {
+    let _ = std::process::Command::new("diesel")
+        .args(&["migration", "run"])
+        .stdout(std::process::Stdio::inherit())
+        .output();
+}
