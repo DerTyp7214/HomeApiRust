@@ -8,3 +8,6 @@ rustup target add x86_64-unknown-linux-musl
 
 chmod +x setup.sh
 ./setup.sh
+
+cargo install diesel_cli --no-default-features --features "sqlite-bundled"
+cp $HOME/.cargo/bin/diesel .
