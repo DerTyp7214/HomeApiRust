@@ -1,6 +1,6 @@
 FROM alpine:latest
 
-COPY target/release/home_api_rust /usr/local/bin/home_api_rust
+COPY home_api_rust /usr/local/bin/home_api_rust
 COPY migrations migrations
 COPY diesel.toml diesel.toml
 COPY diesel /usr/local/bin/diesel
