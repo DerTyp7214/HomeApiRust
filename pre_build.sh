@@ -6,6 +6,8 @@ rustup component add llvm-tools-preview
 rustup target add x86_64-unknown-linux-gnu
 rustup target add x86_64-unknown-linux-musl
 
+rustup update
+
 chmod +x setup.sh
 ./setup.sh
 
