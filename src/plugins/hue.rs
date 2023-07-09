@@ -42,6 +42,29 @@ fn connection_from_pool(pool: &State<SqlitePool>) -> SqlitePooledConnection {
     connection::get_connection(&pool).unwrap()
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct HueScene {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub group: String,
+    pub lights: Vec<String>,
+    pub owner: String,
+    pub recycle: bool,
+    pub locked: bool,
+    pub appdata: HueAppData,
+    pub picture: String,
+    pub lastupdated: String,
+    pub version: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct HueAppData {
+    pub version: i32,
+    pub data: Value,
+}
+
 async fn get_hue_json(hue_bridge: &HueBridge, mut path: String) -> Result<String, CustomResponse> {
     if path.starts_with('/') {
         path.remove(0);
@@ -306,6 +329,13 @@ pub async fn get_light(
         });
     }
 
+    if !light.contains_key("reachable") || !light.get("reachable").to_bool() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Light is not reachable".to_owned(),
+        });
+    }
+
     let hsv = hsb_to_hsv(
         light.get("hue").to_f64() as f32,
         light.get("sat").to_f64() as f32,
@@ -459,6 +489,13 @@ pub async fn get_plug(
         });
     }
 
+    if !json.contains_key("reachable") || !json.get("reachable").to_bool() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Plug is not reachable".to_owned(),
+        });
+    }
+
     Ok(NormalizedPlug {
         id: format!("hue-{}-{}", hue_bridge.id, plug_id),
         name: json.get("name").to_string(),
@@ -471,6 +508,109 @@ pub async fn get_plug(
         swversion: json.get("swversion").to_string(),
         productid: Some(json.get("productid").to_string()),
     })
+}
+
+async fn __get_scenes__(hue_bridge: &HueBridge) -> Result<Vec<HueScene>, CustomResponse> {
+    if hue_bridge.user.is_empty() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Hue Bridge not configured".to_owned(),
+        });
+    }
+
+    let response = get_hue_json(hue_bridge, "scenes".to_owned()).await;
+
+    if response.is_err() {
+        return Err(response.unwrap_err());
+    }
+
+    let response = response.unwrap();
+
+    let json: Value = _serde_json::de::from_str(&response).unwrap();
+
+    let json = json.as_object().unwrap();
+
+    let mut scenes = Vec::new();
+
+    for (id, scene_json) in json.iter() {
+        let mut scene_json = scene_json.as_object().unwrap().to_owned();
+        scene_json.insert("id".to_owned(), id.to_owned().into());
+
+        let scene: HueScene = _serde_json::from_value(Value::Object(scene_json)).unwrap();
+        scenes.push(scene);
+    }
+
+    Ok(scenes)
+}
+
+async fn __set_scene__(
+    hue_bridge: &HueBridge,
+    scene_id: &String,
+    group_id: &String,
+) -> Result<String, CustomResponse> {
+    if hue_bridge.user.is_empty() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Hue Bridge not configured".to_owned(),
+        });
+    }
+
+    let response = put_hue_json(
+        hue_bridge,
+        format!("groups/{}/action", group_id),
+        format!("{{\"scene\": \"{}\"}}", scene_id),
+    )
+    .await;
+
+    if response.is_err() {
+        return Err(response.unwrap_err());
+    }
+
+    let response = response.unwrap();
+
+    let json = _serde_json::from_str::<Value>(&response).unwrap();
+
+    if json.is_array() {
+        let json = json.as_array().unwrap();
+
+        for json in json.iter() {
+            let json = json.as_object().unwrap();
+
+            if json.contains_key("error") {
+                let error: Option<&_serde_json::Map<String, Value>> =
+                    json.get("error").unwrap().as_object();
+
+                if error.is_none() {
+                    return Err(CustomResponse {
+                        status: Status::InternalServerError,
+                        message: json.get("error").unwrap().as_str().unwrap().to_owned(),
+                    });
+                }
+
+                let error = error.unwrap();
+
+                if error.contains_key("description") {
+                    return Err(CustomResponse {
+                        status: Status::InternalServerError,
+                        message: error
+                            .get("description")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .to_owned(),
+                    });
+                }
+            }
+
+            if json.contains_key("success") {
+                let json = json.get("success").unwrap().as_object().unwrap();
+
+                return Ok(json.values().next().unwrap().as_str().unwrap().to_owned());
+            }
+        }
+    }
+
+    Ok(response)
 }
 
 #[derive(serde::Serialize, JsonSchema)]
@@ -487,7 +627,7 @@ struct ConfigRequest {
 #[openapi(tag = "Hue")]
 #[put("/config/add", format = "json", data = "<config_json>")]
 async fn add_config(
-    jtw: JWTToken,
+    jwt: JWTToken,
     _dbpool: &State<SqlitePool>,
     config_json: Json<ConfigRequest>,
 ) -> Result<Json<ConfigResponse>, CustomResponse> {
@@ -507,7 +647,7 @@ async fn add_config(
         ""
     };
 
-    let user = User::get_user(connection, jtw.user_id);
+    let user = User::get_user(connection, jwt.user_id);
 
     if user.is_err() {
         return Err(CustomResponse {
@@ -598,12 +738,12 @@ struct InitResponse {
 #[openapi(tag = "Hue")]
 #[get("/bridges")]
 async fn get_bridges(
-    jtw: JWTToken,
+    jwt: JWTToken,
     _dbpool: &State<SqlitePool>,
 ) -> Result<Json<Vec<HueBridge>>, CustomResponse> {
     let connection = &mut connection_from_pool(_dbpool);
 
-    let hue_bridges = HueBridge::get_huebridges_by_user_id(connection, jtw.user_id);
+    let hue_bridges = HueBridge::get_huebridges_by_user_id(connection, jwt.user_id);
 
     if hue_bridges.is_err() {
         return Err(CustomResponse {
@@ -618,15 +758,87 @@ async fn get_bridges(
 }
 
 #[openapi(tag = "Hue")]
+#[get("/scenes/<bridge_id>")]
+async fn get_scenes(
+    jwt: JWTToken,
+    _dbpool: &State<SqlitePool>,
+    bridge_id: String,
+) -> Result<Json<Vec<HueScene>>, CustomResponse> {
+    let connection = &mut connection_from_pool(_dbpool);
+
+    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jwt.user_id, &bridge_id);
+
+    println!("{:?}", hue_bridge);
+    print!("{}", jwt.user_id);
+    print!("{}", bridge_id);
+
+    if hue_bridge.is_err() {
+        return Err(CustomResponse {
+            status: Status::NotFound,
+            message: "Bridge not found".to_string(),
+        });
+    }
+
+    let hue_bridge = hue_bridge.unwrap();
+
+    let hue_scenes = __get_scenes__(&hue_bridge).await;
+
+    if hue_scenes.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not get hue scenes".to_string(),
+        });
+    }
+
+    let hue_scenes = hue_scenes.unwrap();
+
+    Ok(Json(hue_scenes))
+}
+
+#[openapi(tag = "Hue")]
+#[put("/scenes/<bridge_id>/<group_id>/<scene_id>")]
+async fn set_scene(
+    jwt: JWTToken,
+    _dbpool: &State<SqlitePool>,
+    bridge_id: String,
+    scene_id: String,
+    group_id: String,
+) -> Result<Json<Value>, CustomResponse> {
+    let connection = &mut connection_from_pool(_dbpool);
+
+    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jwt.user_id, &bridge_id);
+
+    if hue_bridge.is_err() {
+        return Err(CustomResponse {
+            status: Status::NotFound,
+            message: "Bridge not found".to_string(),
+        });
+    }
+
+    let hue_bridge = hue_bridge.unwrap();
+
+    let response = __set_scene__(&hue_bridge, &scene_id, &group_id).await;
+
+    if response.is_err() {
+        return Err(CustomResponse {
+            status: Status::InternalServerError,
+            message: "Could not set hue scene".to_string(),
+        });
+    }
+
+    Ok(Json(json!({"success": response.unwrap()})))
+}
+
+#[openapi(tag = "Hue")]
 #[delete("/config/<bridge_id>")]
 async fn delete_bridge(
-    jtw: JWTToken,
+    jwt: JWTToken,
     _dbpool: &State<SqlitePool>,
     bridge_id: String,
 ) -> Result<Json<Value>, CustomResponse> {
     let connection = &mut connection_from_pool(_dbpool);
 
-    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jtw.user_id, &bridge_id);
+    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jwt.user_id, &bridge_id);
 
     if hue_bridge.is_err() {
         return Err(CustomResponse {
@@ -652,13 +864,13 @@ async fn delete_bridge(
 #[openapi(tag = "Hue")]
 #[get("/init/<bridge_id>")]
 async fn init(
-    jtw: JWTToken,
+    jwt: JWTToken,
     _dbpool: &State<SqlitePool>,
     bridge_id: String,
 ) -> Result<Json<InitResponse>, CustomResponse> {
     let connection = &mut connection_from_pool(_dbpool);
 
-    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jtw.user_id, &bridge_id);
+    let hue_bridge = HueBridge::get_huebridge_by_bridge_id(connection, jwt.user_id, &bridge_id);
 
     if hue_bridge.is_err() {
         return Err(CustomResponse {
@@ -720,5 +932,5 @@ async fn init(
 }
 
 pub fn routes(settings: &OpenApiSettings) -> (Vec<rocket::Route>, OpenApi) {
-    openapi_get_routes_spec![settings: init, add_config, get_bridges, delete_bridge]
+    openapi_get_routes_spec![settings: init, add_config, get_bridges, delete_bridge, get_scenes, set_scene]
 }

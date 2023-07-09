@@ -1,4 +1,13 @@
 {
   "rust-analyzer.linkedProjects": [".\\Cargo.toml"],
-  "rust-analyzer.showUnlinkedFileNotification": false
+  "rust-analyzer.showUnlinkedFileNotification": false,
+  "sqltools.connections": [
+    {
+      "previewLimit": 50,
+      "driver": "SQLite",
+      "name": "Main",
+      "database": "${workspaceFolder:HomeApiRust}/db.sqlite"
+    }
+  ],
+  "sqltools.useNodeRuntime": true
 }
